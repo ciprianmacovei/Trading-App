@@ -2,6 +2,7 @@ import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Watchlist, {
   formatChangePercent,
+  formatLastUpdated,
   formatPair,
   formatPrice,
   REFRESH_INTERVAL_MS,
@@ -164,6 +165,43 @@ describe("Watchlist", () => {
     }
   });
 
+  it("shows when prices were last fetched and updates it on each refresh", async () => {
+    fetchTickersMock.mockResolvedValue(threePairs);
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 7, 9, 5, 3));
+
+    try {
+      render(<Watchlist />);
+      await tick(0);
+      expect(screen.getByText(/Last updated/)).toBeInTheDocument();
+      expect(screen.getByTestId("last-updated")).toHaveTextContent("09:05:03");
+
+      await tick(REFRESH_INTERVAL_MS);
+      expect(screen.getByTestId("last-updated")).toHaveTextContent("09:05:13");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the last fetch time when a refresh fails", async () => {
+    fetchTickersMock
+      .mockResolvedValueOnce(threePairs)
+      .mockRejectedValueOnce(new MarketDataError("Could not reach Binance."));
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date(2026, 9, 7, 9, 5, 3));
+
+    try {
+      render(<Watchlist />);
+      await tick(0);
+      await tick(REFRESH_INTERVAL_MS);
+
+      expect(screen.getByRole("alert")).toBeInTheDocument();
+      expect(screen.getByTestId("last-updated")).toHaveTextContent("09:05:03");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("refreshes on a 10 second interval", () => {
     expect(REFRESH_INTERVAL_MS).toBe(10_000);
   });
@@ -184,5 +222,13 @@ describe("formatters", () => {
     expect(formatChangePercent(2.3)).toBe("+2.30%");
     expect(formatChangePercent(-2.3)).toBe("-2.30%");
     expect(formatChangePercent(0)).toBe("0.00%");
+  });
+
+  it("formats the last fetch time as HH:MM:SS in local time", () => {
+    expect(formatLastUpdated(new Date(2026, 9, 7, 9, 5, 3))).toBe("09:05:03");
+    expect(formatLastUpdated(new Date(2026, 9, 7, 0, 0, 0))).toBe("00:00:00");
+    expect(formatLastUpdated(new Date(2026, 9, 7, 23, 59, 59))).toBe(
+      "23:59:59",
+    );
   });
 });

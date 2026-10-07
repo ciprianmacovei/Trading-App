@@ -38,6 +38,13 @@ export function formatVolume(volume: number): string {
   });
 }
 
+/** A fetch time as `HH:MM:SS` (24-hour) in the user's local time zone. */
+export function formatLastUpdated(date: Date): string {
+  return [date.getHours(), date.getMinutes(), date.getSeconds()]
+    .map((part) => String(part).padStart(2, "0"))
+    .join(":");
+}
+
 export default function Watchlist() {
   const [tickers, setTickers] = useState<MarketTicker[] | null>(null);
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
@@ -156,8 +163,15 @@ export default function Watchlist() {
 
           {updatedAt && (
             <p className="text-xs text-white/40">
-              Updated {updatedAt.toLocaleTimeString("en-US")} · refreshes every{" "}
-              {REFRESH_INTERVAL_MS / 1000} seconds
+              Last updated{" "}
+              <time
+                dateTime={updatedAt.toISOString()}
+                data-testid="last-updated"
+                className="tabular-nums"
+              >
+                {formatLastUpdated(updatedAt)}
+              </time>{" "}
+              · refreshes every {REFRESH_INTERVAL_MS / 1000} seconds
             </p>
           )}
         </>
