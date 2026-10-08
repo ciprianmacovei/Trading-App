@@ -1,4 +1,10 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Watchlist, {
   formatChangePercent,
@@ -104,6 +110,72 @@ describe("Watchlist", () => {
       "Could not load live prices: Binance answered with 500.",
     );
     expect(screen.queryByRole("table")).not.toBeInTheDocument();
+  });
+
+  it("shows a Try again button only in the error state", async () => {
+    fetchTickersMock.mockResolvedValue(threePairs);
+
+    render(<Watchlist />);
+
+    await screen.findByRole("table");
+    expect(
+      screen.queryByRole("button", { name: "Try again" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("recovers the table when Try again succeeds", async () => {
+    let resolveRetry: (value: MarketTicker[]) => void = () => {};
+    fetchTickersMock
+      .mockRejectedValueOnce(new MarketDataError("Could not reach Binance."))
+      .mockReturnValueOnce(
+        new Promise<MarketTicker[]>((r) => {
+          resolveRetry = r;
+        }),
+      );
+
+    render(<Watchlist />);
+
+    const button = await screen.findByRole("button", { name: "Try again" });
+    fireEvent.click(button);
+
+    expect(fetchTickersMock).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole("status")).toHaveTextContent("Loading prices…");
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+
+    await act(async () => {
+      resolveRetry(threePairs);
+    });
+
+    expect(await screen.findByRole("table")).toBeInTheDocument();
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Try again" }),
+    ).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
+  });
+
+  it("keeps the error and the button when Try again fails", async () => {
+    fetchTickersMock
+      .mockRejectedValueOnce(new MarketDataError("Could not reach Binance."))
+      .mockRejectedValueOnce(
+        new MarketDataError("Binance answered with 503.", { status: 503 }),
+      );
+
+    render(<Watchlist />);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("alert")).toHaveTextContent(
+        "Could not load live prices: Binance answered with 503.",
+      );
+    });
+    expect(fetchTickersMock).toHaveBeenCalledTimes(2);
+    expect(
+      screen.getByRole("button", { name: "Try again" }),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("table")).not.toBeInTheDocument();
+    expect(screen.queryByRole("status")).not.toBeInTheDocument();
   });
 
   it("keeps the last prices on screen when a refresh fails", async () => {

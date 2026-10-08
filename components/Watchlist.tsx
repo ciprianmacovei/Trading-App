@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchTickers,
   MarketTicker,
@@ -68,46 +68,57 @@ export default function Watchlist() {
     );
   }, []);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    let cancelled = false;
+  /** Aborts in-flight requests once the component unmounts. */
+  const controllerRef = useRef<AbortController | null>(null);
 
-    async function load() {
-      try {
-        const next = await fetchTickers(WATCHLIST_SYMBOLS, {
-          signal: controller.signal,
-        });
-        if (cancelled) {
-          return;
-        }
-        setTickers(next);
-        setUpdatedAt(new Date());
-        setError(null);
-      } catch (caught) {
-        if (cancelled || controller.signal.aborted) {
-          return;
-        }
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : "Could not load prices from Binance.",
-        );
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
+  const load = useCallback(async () => {
+    const controller = controllerRef.current;
+    if (!controller || controller.signal.aborted) {
+      return;
+    }
+    try {
+      const next = await fetchTickers(WATCHLIST_SYMBOLS, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) {
+        return;
+      }
+      setTickers(next);
+      setUpdatedAt(new Date());
+      setError(null);
+    } catch (caught) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not load prices from Binance.",
+      );
+    } finally {
+      if (!controller.signal.aborted) {
+        setIsLoading(false);
       }
     }
+  }, []);
+
+  const retry = useCallback(() => {
+    setIsLoading(true);
+    void load();
+  }, [load]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    controllerRef.current = controller;
 
     void load();
     const timer = setInterval(() => void load(), REFRESH_INTERVAL_MS);
 
     return () => {
-      cancelled = true;
       clearInterval(timer);
       controller.abort();
     };
-  }, []);
+  }, [load]);
 
   if (isLoading && !tickers) {
     return (
@@ -119,14 +130,29 @@ export default function Watchlist() {
 
   return (
     <div className="flex flex-col gap-4">
-      {error && (
-        <p
-          role="alert"
-          className="rounded border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-300"
-        >
-          Could not load live prices: {error}
-          {tickers && " Showing the last prices received."}
+      {isLoading && (
+        <p role="status" className="text-sm text-white/60">
+          Loading prices…
         </p>
+      )}
+
+      {error && !isLoading && (
+        <div
+          role="alert"
+          className="flex items-center justify-between gap-4 rounded border border-rose-500/40 bg-rose-500/10 px-4 py-3 text-sm text-rose-300"
+        >
+          <p>
+            Could not load live prices: {error}
+            {tickers && " Showing the last prices received."}
+          </p>
+          <button
+            type="button"
+            onClick={retry}
+            className="shrink-0 rounded border border-rose-400/50 px-3 py-1 font-medium text-rose-200 hover:bg-rose-500/20"
+          >
+            Try again
+          </button>
+        </div>
       )}
 
       {tickers && (
