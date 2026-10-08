@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchTickers,
   MarketTicker,
@@ -43,6 +43,9 @@ export default function Watchlist() {
   const [updatedAt, setUpdatedAt] = useState<Date | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  /** Aborts in-flight requests on unmount; `null` once unmounted. */
+  const controllerRef = useRef<AbortController | null>(null);
 
   const renderRow = useCallback((ticker: MarketTicker) => {
     const isUp = ticker.priceChangePercent >= 0;
@@ -68,46 +71,61 @@ export default function Watchlist() {
     );
   }, []);
 
-  useEffect(() => {
-    const controller = new AbortController();
-    let cancelled = false;
-
-    async function load() {
-      try {
-        const next = await fetchTickers(WATCHLIST_SYMBOLS, {
-          signal: controller.signal,
-        });
-        if (cancelled) {
-          return;
-        }
-        setTickers(next);
-        setUpdatedAt(new Date());
-        setError(null);
-      } catch (caught) {
-        if (cancelled || controller.signal.aborted) {
-          return;
-        }
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : "Could not load prices from Binance.",
-        );
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
+  const load = useCallback(async () => {
+    const controller = controllerRef.current;
+    if (!controller) {
+      return;
+    }
+    try {
+      const next = await fetchTickers(WATCHLIST_SYMBOLS, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) {
+        return;
+      }
+      setTickers(next);
+      setUpdatedAt(new Date());
+      setError(null);
+    } catch (caught) {
+      if (controller.signal.aborted) {
+        return;
+      }
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Could not load prices from Binance.",
+      );
+    } finally {
+      if (!controller.signal.aborted) {
+        setIsLoading(false);
       }
     }
+  }, []);
+
+  const refresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await load();
+    } finally {
+      if (controllerRef.current) {
+        setIsRefreshing(false);
+      }
+    }
+  }, [load]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    controllerRef.current = controller;
 
     void load();
     const timer = setInterval(() => void load(), REFRESH_INTERVAL_MS);
 
     return () => {
-      cancelled = true;
       clearInterval(timer);
       controller.abort();
+      controllerRef.current = null;
     };
-  }, []);
+  }, [load]);
 
   if (isLoading && !tickers) {
     return (
@@ -119,6 +137,17 @@ export default function Watchlist() {
 
   return (
     <div className="flex flex-col gap-4">
+      <div className="flex w-full max-w-2xl justify-end">
+        <button
+          type="button"
+          onClick={() => void refresh()}
+          disabled={isRefreshing}
+          className="rounded border border-white/15 px-3 py-1.5 text-sm font-medium text-white/80 hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isRefreshing ? "Refreshing…" : "Refresh"}
+        </button>
+      </div>
+
       {error && (
         <p
           role="alert"

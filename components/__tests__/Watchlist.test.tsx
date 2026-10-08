@@ -1,4 +1,10 @@
-import { act, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import Watchlist, {
   formatChangePercent,
@@ -159,6 +165,97 @@ describe("Watchlist", () => {
       await tick(REFRESH_INTERVAL_MS * 3);
 
       expect(fetchTickersMock).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("fetches fresh prices when Refresh is clicked", async () => {
+    fetchTickersMock
+      .mockResolvedValueOnce(threePairs)
+      .mockResolvedValueOnce([
+        ticker({ lastPrice: 65000 }),
+        ...threePairs.slice(1),
+      ]);
+
+    render(<Watchlist />);
+
+    expect(
+      await screen.findByRole("row", { name: /BTC\/USDT/ }),
+    ).toHaveTextContent("64,250.12");
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    await waitFor(() => {
+      expect(screen.getByRole("row", { name: /BTC\/USDT/ })).toHaveTextContent(
+        "65,000.00",
+      );
+    });
+    expect(fetchTickersMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("disables the Refresh button while a fetch is running", async () => {
+    let resolve: (value: MarketTicker[]) => void = () => {};
+    fetchTickersMock.mockResolvedValueOnce(threePairs).mockReturnValueOnce(
+      new Promise<MarketTicker[]>((r) => {
+        resolve = r;
+      }),
+    );
+
+    render(<Watchlist />);
+    await screen.findByRole("table");
+
+    const button = screen.getByRole("button", { name: "Refresh" });
+    expect(button).toBeEnabled();
+
+    fireEvent.click(button);
+
+    expect(button).toBeDisabled();
+    expect(button).toHaveTextContent("Refreshing…");
+
+    fireEvent.click(button);
+    expect(fetchTickersMock).toHaveBeenCalledTimes(2);
+
+    await act(async () => {
+      resolve(threePairs);
+    });
+
+    await waitFor(() => {
+      expect(button).toBeEnabled();
+    });
+    expect(button).toHaveTextContent("Refresh");
+  });
+
+  it("re-enables the Refresh button when the fetch fails", async () => {
+    fetchTickersMock
+      .mockResolvedValueOnce(threePairs)
+      .mockRejectedValueOnce(new MarketDataError("Could not reach Binance."));
+
+    render(<Watchlist />);
+    await screen.findByRole("table");
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Could not reach Binance.",
+    );
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
+  });
+
+  it("keeps auto-refreshing after a manual refresh", async () => {
+    fetchTickersMock.mockResolvedValue(threePairs);
+    vi.useFakeTimers();
+
+    try {
+      render(<Watchlist />);
+      await tick(0);
+
+      fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+      await tick(0);
+      expect(fetchTickersMock).toHaveBeenCalledTimes(2);
+
+      await tick(REFRESH_INTERVAL_MS);
+      expect(fetchTickersMock).toHaveBeenCalledTimes(3);
     } finally {
       vi.useRealTimers();
     }
