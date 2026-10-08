@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import WatchlistPage from "@/app/watchlist/page";
+import WatchlistPage, { metadata } from "@/app/watchlist/page";
 
 vi.mock("@/components/Watchlist", () => ({
   default: () => <div data-testid="watchlist" />,
@@ -16,5 +16,9 @@ describe("Watchlist page", () => {
       screen.getByRole("heading", { level: 2, name: "Watchlist" }),
     ).toBeInTheDocument();
     expect(screen.getByTestId("watchlist")).toBeInTheDocument();
+  });
+
+  it("sets the browser tab title", () => {
+    expect(metadata.title).toBe("Watchlist · Trading App");
   });
 });

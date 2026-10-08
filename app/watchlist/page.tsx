@@ -1,8 +1,9 @@
+import type { Metadata } from "next";
 import Header from "@/components/Header";
 import Sidebar from "@/components/Sidebar";
 import Watchlist from "@/components/Watchlist";
 
-export const metadata = {
+export const metadata: Metadata = {
   title: "Watchlist · Trading App",
   description: "Live BTC, ETH and SOL prices against USDT.",
 };
